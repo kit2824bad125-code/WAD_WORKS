@@ -1,0 +1,505 @@
+// FixNear Prisma Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  SERVICE_PROVIDER
+  ADMIN
+}
+
+enum ProviderStatus {
+  PENDING
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  SUSPENDED
+}
+
+enum BookingStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CONFIRMED
+  EN_ROUTE
+  ARRIVED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentMethod {
+  RAZORPAY
+  UPI
+  CARD
+  NET_BANKING
+  WALLET
+  CASH_ON_SERVICE
+}
+
+enum PricingType {
+  FIXED_PRICE
+  STARTING_FROM
+  HOURLY
+  QUOTE_REQUIRED
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+enum ReportStatus {
+  PENDING
+  INVESTIGATING
+  DISMISSED
+  ACTION_TAKEN
+}
+
+enum QuoteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum ImageType {
+  PROBLEM
+  COMPLETION
+}
+
+model User {
+  id               String            @id @default(uuid())
+  email            String            @unique
+  passwordHash     String
+  name             String
+  phone            String?
+  role             UserRole          @default(CUSTOMER)
+  avatarUrl        String?
+  isEmailVerified  Boolean           @default(false)
+  isPhoneVerified  Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  customerProfile  CustomerProfile?
+  providerProfile  ProviderProfile?
+  sentMessages     Message[]         @relation("SenderMessages")
+  receivedMessages Message[]         @relation("ReceiverMessages")
+  notifications    Notification[]
+  adminActions     AdminAction[]     @relation("AdminActionUser")
+  customerBookings Booking[]         @relation("CustomerBookings")
+  reviewsWritten   Review[]          @relation("CustomerReviews")
+  favorites        Favorite[]        @relation("CustomerFavorites")
+  disputesRaised   Dispute[]         @relation("DisputesRaised")
+  reportsSubmitted Report[]          @relation("UserReports")
+
+  @@index([email])
+  @@index([role])
+}
+
+model CustomerProfile {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  preferredLanguage String?   @default("English")
+  addresses         Address[]
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model ProviderProfile {
+  id                     String            @id @default(uuid())
+  userId                 String            @unique
+  user                   User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName           String
+  description            String
+  status                 ProviderStatus    @default(PENDING)
+  isAvailable            Boolean           @default(true)
+  isEmergencyAvailable   Boolean           @default(false)
+  experienceYears        Int               @default(1)
+  serviceRadiusKm        Float             @default(15.0)
+  rating                 Float             @default(0.0)
+  reviewCount            Int               @default(0)
+  completedJobsCount     Int               @default(0)
+  responseRatePercent    Float             @default(100.0)
+  cancellationRatePercent Float            @default(0.0)
+  identityDocumentUrl    String?
+  licenseDocumentUrl     String?
+  portfolioImages        String[]          @default([])
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  address                Address?
+  workingHours           Availability[]
+  exceptions             AvailabilityException[]
+  providerServices       ProviderService[]
+  bookings               Booking[]         @relation("ProviderBookings")
+  reviewsReceived        Review[]          @relation("ProviderReviews")
+  favoritedBy            Favorite[]        @relation("ProviderFavorites")
+
+  @@index([status])
+  @@index([isAvailable])
+  @@index([rating])
+}
+
+model Address {
+  id                String           @id @default(uuid())
+  customerProfileId String?
+  customerProfile   CustomerProfile? @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  providerProfileId String?          @unique
+  providerProfile   ProviderProfile? @relation(fields: [providerProfileId], references: [id], onDelete: Cascade)
+  street            String
+  city              String
+  state             String
+  postalCode        String
+  country           String           @default("India")
+  latitude          Float
+  longitude         Float
+  landmark          String?
+  isDefault         Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([city])
+  @@index([latitude, longitude])
+  @@index([postalCode])
+}
+
+model Availability {
+  id          String          @id @default(uuid())
+  providerId  String
+  provider    ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  dayOfWeek   String          // MONDAY, TUESDAY, etc.
+  isOpen      Boolean         @default(true)
+  openTime    String          @default("09:00")
+  closeTime   String          @default("18:00")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([providerId, dayOfWeek])
+}
+
+model AvailabilityException {
+  id          String          @id @default(uuid())
+  providerId  String
+  provider    ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  date        DateTime
+  isAvailable Boolean         @default(false)
+  reason      String?
+  createdAt   DateTime        @default(now())
+
+  @@index([providerId, date])
+}
+
+model Category {
+  id           String    @id @default(uuid())
+  name         String    @unique
+  slug         String    @unique
+  description  String
+  iconName     String    @default("Wrench")
+  imageUrl     String?
+  isActive     Boolean   @default(true)
+  displayOrder Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  services     Service[]
+
+  @@index([slug])
+  @@index([isActive])
+}
+
+model Service {
+  id                       String            @id @default(uuid())
+  categoryId               String
+  category                 Category          @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name                     String
+  slug                     String            @unique
+  description              String
+  basePrice                Float
+  pricingType              PricingType       @default(FIXED_PRICE)
+  estimatedDurationMinutes Int               @default(60)
+  imageUrl                 String?
+  isActive                 Boolean           @default(true)
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  providerServices         ProviderService[]
+  bookings                 Booking[]
+
+  @@index([categoryId])
+  @@index([slug])
+  @@index([isActive])
+}
+
+model ProviderService {
+  id          String          @id @default(uuid())
+  providerId  String
+  provider    ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  serviceId   String
+  service     Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  customPrice Float
+  pricingType PricingType     @default(FIXED_PRICE)
+  isActive    Boolean         @default(true)
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@unique([providerId, serviceId])
+  @@index([providerId])
+  @@index([serviceId])
+}
+
+model Booking {
+  id                       String                 @id @default(uuid())
+  customerId               String
+  customer                 User                   @relation("CustomerBookings", fields: [customerId], references: [id], onDelete: Cascade)
+  providerId               String
+  provider                 ProviderProfile        @relation("ProviderBookings", fields: [providerId], references: [id], onDelete: Cascade)
+  serviceId                String
+  service                  Service                @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  status                   BookingStatus          @default(PENDING)
+  scheduledAt              DateTime
+  estimatedDurationMinutes Int                    @default(60)
+  
+  // Service location
+  street                   String
+  city                     String
+  state                    String
+  postalCode               String
+  latitude                 Float
+  longitude                Float
+  contactPhone             String
+
+  problemDescription       String
+  additionalNotes          String?
+  isEmergency              Boolean                @default(false)
+  servicePrice             Float
+  platformFee              Float                  @default(49.0)
+  discountAmount           Float                  @default(0.0)
+  totalPrice               Float
+
+  cancelledAt              DateTime?
+  cancelledReason          String?
+  cancelledByUserId        String?
+
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  statusHistory            BookingStatusHistory[]
+  images                   BookingImage[]
+  quote                    Quote?
+  payment                  Payment?
+  review                   Review?
+  conversation             Conversation?
+  disputes                 Dispute[]
+
+  @@index([customerId])
+  @@index([providerId])
+  @@index([serviceId])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+model BookingStatusHistory {
+  id          String        @id @default(uuid())
+  bookingId   String
+  booking     Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  status      BookingStatus
+  comment     String?
+  createdById String
+  createdAt   DateTime      @default(now())
+
+  @@index([bookingId])
+}
+
+model BookingImage {
+  id        String    @id @default(uuid())
+  bookingId String
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  imageUrl  String
+  imageType ImageType @default(PROBLEM)
+  createdAt DateTime  @default(now())
+
+  @@index([bookingId])
+}
+
+model Quote {
+  id              String      @id @default(uuid())
+  bookingId       String      @unique
+  booking         Booking     @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  estimatedAmount Float
+  description     String
+  breakdownJson   String?     // JSON string of itemised costs
+  status          QuoteStatus @default(PENDING)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  bookingId         String        @unique
+  booking           Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  amount            Float
+  currency          String        @default("INR")
+  status            PaymentStatus @default(PENDING)
+  paymentMethod     PaymentMethod @default(RAZORPAY)
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  platformFee       Float         @default(49.0)
+  providerEarnings  Float
+  gatewayResponse   String?       // JSON string
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([status])
+}
+
+model Review {
+  id         String          @id @default(uuid())
+  bookingId  String          @unique
+  booking    Booking         @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   User            @relation("CustomerReviews", fields: [customerId], references: [id], onDelete: Cascade)
+  providerId String
+  provider   ProviderProfile @relation("ProviderReviews", fields: [providerId], references: [id], onDelete: Cascade)
+  rating     Int
+  comment    String
+  images     String[]        @default([])
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([providerId])
+  @@index([customerId])
+  @@index([rating])
+}
+
+model Favorite {
+  id         String          @id @default(uuid())
+  customerId String
+  customer   User            @relation("CustomerFavorites", fields: [customerId], references: [id], onDelete: Cascade)
+  providerId String
+  provider   ProviderProfile @relation("ProviderFavorites", fields: [providerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime        @default(now())
+
+  @@unique([customerId, providerId])
+  @@index([customerId])
+}
+
+model Conversation {
+  id         String    @id @default(uuid())
+  bookingId  String    @unique
+  booking    Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customerId String
+  providerId String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  messages   Message[]
+
+  @@index([customerId])
+  @@index([providerId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation("SenderMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId     String
+  receiver       User         @relation("ReceiverMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  content        String
+  imageUrl       String?
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  message   String
+  dataJson  String?  // JSON string of metadata
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+model Dispute {
+  id             String        @id @default(uuid())
+  bookingId      String
+  booking        Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  raisedById     String
+  raisedBy       User          @relation("DisputesRaised", fields: [raisedById], references: [id], onDelete: Cascade)
+  reason         String
+  description    String
+  evidenceImages String[]      @default([])
+  status         DisputeStatus @default(OPEN)
+  adminNotes     String?
+  resolution     String?
+  resolvedAt     DateTime?
+  resolvedById   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([bookingId])
+  @@index([status])
+}
+
+model Report {
+  id          String       @id @default(uuid())
+  reporterId  String
+  reporter    User         @relation("UserReports", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetType  String       // PROVIDER, USER, REVIEW
+  targetId    String
+  reason      String
+  details     String?
+  status      ReportStatus @default(PENDING)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([targetType, targetId])
+  @@index([status])
+}
+
+model AdminAction {
+  id         String   @id @default(uuid())
+  adminId    String
+  admin      User     @relation("AdminActionUser", fields: [adminId], references: [id], onDelete: Cascade)
+  action     String
+  targetType String
+  targetId   String
+  details    String?  // JSON string
+  createdAt  DateTime @default(now())
+
+  @@index([adminId])
+  @@index([targetType, targetId])
+}
